@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>MP3 a Texto con Whisper Local</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Consolas, "Courier New", monospace;
+            background: #000;
+            color: #d8ffe4;
+            overflow-x: hidden;
+        }
+
+        canvas#matrixCanvas {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            opacity: 0.75;
+        }
+
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(circle at center, rgba(0, 255, 102, 0.08), transparent 35%),
+                linear-gradient(180deg, rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.92));
+            z-index: 1;
+        }
+
+        .page {
+            position: relative;
+            z-index: 2;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 980px;
+            border: 1px solid rgba(0, 255, 120, 0.55);
+            background: rgba(0, 10, 4, 0.88);
+            box-shadow:
+                0 0 25px rgba(0, 255, 120, 0.25),
+                inset 0 0 35px rgba(0, 255, 120, 0.05);
+            border-radius: 18px;
+            padding: 28px;
+            backdrop-filter: blur(8px);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            align-items: flex-start;
+            border-bottom: 1px solid rgba(0, 255, 120, 0.25);
+            padding-bottom: 20px;
+            margin-bottom: 24px;
+        }
+
+        .title-block h1 {
+            margin: 0;
+            color: #00ff7b;
+            font-size: 34px;
+            letter-spacing: 1px;
+            text-shadow: 0 0 12px rgba(0, 255, 120, 0.85);
+        }
+
+        .title-block p {
+            margin: 10px 0 0;
+            color: #a7ffc8;
+            line-height: 1.5;
+        }
+
+        .status-card {
+            min-width: 220px;
+            border: 1px solid rgba(0, 255, 120, 0.35);
+            border-radius: 12px;
+            padding: 14px;
+            background: rgba(0, 0, 0, 0.45);
+        }
+
+        .status-card span {
+            display: block;
+            font-size: 13px;
+            color: #7cffac;
+        }
+
+        .status-card strong {
+            display: block;
+            margin-top: 6px;
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: normal;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        .panel {
+            border: 1px solid rgba(0, 255, 120, 0.28);
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 14px;
+            padding: 20px;
+        }
+
+        .panel h2 {
+            margin: 0 0 16px;
+            color: #00ff7b;
+            font-size: 20px;
+            font-weight: normal;
+        }
+
+        label {
+            display: block;
+            margin-top: 18px;
+            margin-bottom: 8px;
+            color: #baffd0;
+        }
+
+        input[type="file"], select {
+            width: 100%;
+            padding: 12px;
+            background: #020f07;
+            border: 1px solid rgba(0, 255, 120, 0.45);
+            border-radius: 10px;
+            color: #d8ffe4;
+            outline: none;
+        }
+
+        input[type="file"]::file-selector-button {
+            background: #00ff7b;
+            color: #001b0a;
+            border: none;
+            border-radius: 8px;
+            padding: 9px 12px;
+            margin-right: 12px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 22px;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(90deg, #00ff7b, #93ffba);
+            color: #001b0a;
+            font-family: inherit;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 0 18px rgba(0, 255, 120, 0.35);
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .progress-area {
+            margin-top: 18px;
+        }
+
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+            color: #baffd0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 22px;
+            border: 1px solid rgba(0, 255, 120, 0.5);
+            border-radius: 999px;
+            overflow: hidden;
+            background: #001405;
+            box-shadow: inset 0 0 10px rgba(0, 255, 120, 0.15);
+        }
+
+        .progress-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #00ff7b, #ffffff, #00ff7b);
+            box-shadow: 0 0 18px rgba(0, 255, 120, 0.8);
+            transition: width 0.35s ease;
+        }
+
+        .terminal {
+            margin-top: 20px;
+            height: 210px;
+            overflow: auto;
+            background: #000;
+            border: 1px solid rgba(0, 255, 120, 0.28);
+            border-radius: 10px;
+            padding: 14px;
+            color: #7cffac;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .terminal-line::before {
+            content: "> ";
+            color: #00ff7b;
+        }
+
+        .result-box {
+            width: 100%;
+            height: 320px;
+            background: #000;
+            color: #d8ffe4;
+            border: 1px solid rgba(0, 255, 120, 0.45);
+            border-radius: 10px;
+            padding: 14px;
+            resize: vertical;
+            outline: none;
+            font-family: Consolas, "Courier New", monospace;
+            line-height: 1.5;
+        }
+
+        .actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .secondary-button {
+            margin-top: 0;
+            background: transparent;
+            color: #00ff7b;
+            border: 1px solid rgba(0, 255, 120, 0.55);
+            box-shadow: none;
+        }
+
+        .file-name {
+            margin-top: 12px;
+            color: #ffffff;
+            font-size: 14px;
+            word-break: break-word;
+        }
+
+        .pulse {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: #00ff7b;
+            box-shadow: 0 0 12px #00ff7b;
+            margin-right: 8px;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.35;
+                transform: scale(0.9);
+            }
+            50% {
+                opacity: 1;
+                transform: scale(1.25);
+            }
+            100% {
+                opacity: 0.35;
+                transform: scale(0.9);
+            }
+        }
+
+        @media (max-width: 850px) {
+            .header {
+                flex-direction: column;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .status-card {
+                width: 100%;
+            }
+
+            .title-block h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="matrixCanvas"></canvas>
+    <div class="overlay"></div>
+
+    <main class="page">
+        <section class="container">
+            <div class="header">
+                <div class="title-block">
+                    <h1>WHISPER </h1>
+                    <p>
+                        Convierte audio a texto localmente usando Whisper. Tu archivo se procesa en tu computadora.
+                    </p>
+                </div>
+
+                <div class="status-card">
+                    <span>Modelo activo</span>
+                    <strong>{{ model_name }}</strong>
+
+                    <span style="margin-top: 12px;">Dispositivo</span>
+                    <strong>{{ device }}</strong>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="panel">
+                    <h2>Entrada de audio</h2>
+
+                    <form id="uploadForm">
+                        <label>Selecciona tu archivo</label>
+                        <input type="file" name="audio" id="audioInput" accept=".mp3,.wav,.m4a,.ogg,.flac" required>
+
+                        <label>Idioma</label>
+                        <select name="language" id="languageSelect">
+                            <option value="">Detectar automáticamente</option>
+                            <option value="es">Español</option>
+                            <option value="en">Inglés</option>
+                            <option value="pt">Portugués</option>
+                            <option value="fr">Francés</option>
+                        </select>
+
+                        <button type="submit" id="startButton">Iniciar transcripción</button>
+                    </form>
+
+                    <div class="file-name" id="fileName">Ningún archivo seleccionado</div>
+
+                    <div class="progress-area">
+                        <div class="progress-info">
+                            <span id="statusText"><span class="pulse"></span>Esperando archivo</span>
+                            <span id="percentText">0%</span>
+                        </div>
+
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                    </div>
+
+                    <div class="terminal" id="terminalLog">
+                        <div class="terminal-line">Sistema listo</div>
+                        <div class="terminal-line">Esperando archivo de audio</div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Texto generado</h2>
+
+                    <textarea class="result-box" id="resultText" readonly placeholder="Aquí aparecerá la transcripción final..."></textarea>
+
+                    <div class="actions">
+                        <button type="button" class="secondary-button" id="copyButton">Copiar texto</button>
+                        <button type="button" class="secondary-button" id="clearButton">Limpiar</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const canvas = document.getElementById("matrixCanvas");
+        const ctx = canvas.getContext("2d");
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        resizeCanvas();
+        window.addEventListener("resize", resizeCanvas);
+
+        const characters = "アカサタナハマヤラワ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const fontSize = 16;
+        let columns = Math.floor(canvas.width / fontSize);
+        let drops = Array(columns).fill(1);
+
+        function drawMatrix() {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = "#00ff66";
+            ctx.font = fontSize + "px monospace";
+
+            columns = Math.floor(canvas.width / fontSize);
+
+            if (drops.length !== columns) {
+                drops = Array(columns).fill(1);
+            }
+
+            for (let i = 0; i < drops.length; i++) {
+                const text = characters.charAt(Math.floor(Math.random() * characters.length));
+                ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+
+                if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+                    drops[i] = 0;
+                }
+
+                drops[i]++;
+            }
+        }
+
+        setInterval(drawMatrix, 35);
+
+        const uploadForm = document.getElementById("uploadForm");
+        const audioInput = document.getElementById("audioInput");
+        const languageSelect = document.getElementById("languageSelect");
+        const startButton = document.getElementById("startButton");
+        const fileName = document.getElementById("fileName");
+        const statusText = document.getElementById("statusText");
+        const percentText = document.getElementById("percentText");
+        const progressFill = document.getElementById("progressFill");
+        const terminalLog = document.getElementById("terminalLog");
+        const resultText = document.getElementById("resultText");
+        const copyButton = document.getElementById("copyButton");
+        const clearButton = document.getElementById("clearButton");
+
+        let lastStatus = "";
+
+        audioInput.addEventListener("change", () => {
+            if (audioInput.files.length > 0) {
+                fileName.textContent = "Archivo seleccionado: " + audioInput.files[0].name;
+            } else {
+                fileName.textContent = "Ningún archivo seleccionado";
+            }
+        });
+
+        function addLog(message) {
+            const line = document.createElement("div");
+            line.className = "terminal-line";
+            line.textContent = message;
+            terminalLog.appendChild(line);
+            terminalLog.scrollTop = terminalLog.scrollHeight;
+        }
+
+        function updateProgress(progress, status) {
+            progressFill.style.width = progress + "%";
+            percentText.textContent = progress + "%";
+            statusText.innerHTML = '<span class="pulse"></span>' + status;
+
+            if (status !== lastStatus) {
+                addLog(status);
+                lastStatus = status;
+            }
+        }
+
+        function resetInterface() {
+            updateProgress(0, "Esperando archivo");
+            resultText.value = "";
+            terminalLog.innerHTML = "";
+            addLog("Sistema listo");
+            addLog("Esperando archivo de audio");
+            lastStatus = "";
+            startButton.disabled = false;
+            startButton.textContent = "Iniciar transcripción";
+        }
+
+        async function checkProgress(taskId) {
+            const response = await fetch("/progress/" + taskId);
+            const data = await response.json();
+
+            if (!data.success) {
+                addLog("No se pudo leer el progreso");
+                startButton.disabled = false;
+                startButton.textContent = "Iniciar transcripción";
+                return;
+            }
+
+            updateProgress(data.progress, data.status);
+
+            if (data.error) {
+                addLog("Error: " + data.error);
+                startButton.disabled = false;
+                startButton.textContent = "Iniciar transcripción";
+                return;
+            }
+
+            if (data.progress >= 100) {
+                resultText.value = data.transcription || "";
+                addLog("Proceso finalizado correctamente");
+                startButton.disabled = false;
+                startButton.textContent = "Iniciar nueva transcripción";
+                return;
+            }
+
+            setTimeout(() => checkProgress(taskId), 700);
+        }
+
+        uploadForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            if (!audioInput.files.length) {
+                addLog("Selecciona un archivo antes de iniciar");
+                return;
+            }
+
+            resetInterface();
+
+            startButton.disabled = true;
+            startButton.textContent = "Procesando...";
+            updateProgress(1, "Enviando archivo al sistema local");
+
+            const formData = new FormData();
+            formData.append("audio", audioInput.files[0]);
+            formData.append("language", languageSelect.value);
+
+            try {
+                const response = await fetch("/start", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    addLog(data.message || "No se pudo iniciar la transcripción");
+                    startButton.disabled = false;
+                    startButton.textContent = "Iniciar transcripción";
+                    return;
+                }
+
+                addLog("Proceso creado: " + data.task_id);
+                checkProgress(data.task_id);
+
+            } catch (error) {
+                addLog("Error de conexión local: " + error.message);
+                startButton.disabled = false;
+                startButton.textContent = "Iniciar transcripción";
+            }
+        });
+
+        copyButton.addEventListener("click", async () => {
+            if (!resultText.value.trim()) {
+                addLog("No hay texto para copiar");
+                return;
+            }
+
+            await navigator.clipboard.writeText(resultText.value);
+            addLog("Texto copiado al portapapeles");
+        });
+
+        clearButton.addEventListener("click", () => {
+            audioInput.value = "";
+            fileName.textContent = "Ningún archivo seleccionado";
+            resetInterface();
+        });
+    </script>
+</body>
+</html>
